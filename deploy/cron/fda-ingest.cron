@@ -1,0 +1,4 @@
+# Alternative to the systemd timer, for hosts without systemd.
+# Install with:  crontab -e   and paste the line below, replacing /home/USER/flight-data-analyzer.
+# Logs go to a file instead of journald; inspect with scripts/inspect_logs.sh --file ~/fda-ingest.log
+*/5 * * * * cd /home/USER/flight-data-analyzer && set -a && . /etc/fda/fda.env && set +a && .venv/bin/python -m fda.ingest >> "$HOME/fda-ingest.log" 2>&1

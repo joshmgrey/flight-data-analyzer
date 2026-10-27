@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: fda_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:test@localhost:5432/fda_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Lint (ruff)
+        run: ruff check src tests
+      - name: Tests with coverage (unit, data-validation, database)
+        run: pytest --cov=fda --cov-report=term-missing --cov-fail-under=85 -v
+      - name: Fail if any database test was skipped
+        run: |
+          pytest -m db -q -rs | tee db.txt
+          ! grep -q SKIPPED db.txt
+
+  shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
+      - name: Validate systemd units
+        run: |
+          mkdir -p /tmp/units
+          for u in deploy/systemd/*; do
+            sed -e "s|@APP_DIR@|$PWD|g" -e "s|@USER@|$(id -un)|g" "$u" > "/tmp/units/$(basename "$u")"
+          done
+          # ExecStart must exist for verify to pass; point it at a stub.
+          mkdir -p .venv/bin && ln -sf "$(command -v python3)" .venv/bin/python
+          sudo mkdir -p /etc/fda && sudo touch /etc/fda/fda.env
+          systemd-analyze verify /tmp/units/fda-ingest.service /tmp/units/fda-ingest.timer
